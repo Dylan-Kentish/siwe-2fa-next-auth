@@ -2,6 +2,7 @@ import 'server-only';
 
 import { verifyAuthenticationResponse } from '@simplewebauthn/server';
 import { AuthenticationResponseJSON } from '@simplewebauthn/server/script/deps';
+import { headers } from 'next/headers';
 import {
   type NextAuthOptions,
   getServerSession as getServerSessionInternal,
@@ -18,10 +19,27 @@ import { fromBase64, toBase64 } from '@/lib/convert';
 import { prisma } from '@/server/db';
 
 export const rpName = 'SIWE + WEBAUTHN + NEXT-AUTH';
-export const rpID = env.NEXT_PUBLIC_VERCEL_URL || 'localhost';
-export const domain = env.NODE_ENV === 'production' ? rpID : `${rpID}:3000`;
-export const origin = env.NODE_ENV === 'production' ? `https://${rpID}` : `http://${rpID}`;
-export const expectedOrigin = env.NODE_ENV === 'production' ? origin : `${origin}:3000`;
+
+export function webauthnSettings() {
+  const headersList = headers();
+  const host = headersList.get('host');
+
+  if (!host) {
+    throw new Error('No host');
+  }
+
+  const rpID = env.NODE_ENV === 'production' ? host : host.split(':')[0]!;
+  const domain = env.NODE_ENV === 'production' ? rpID : `${rpID}:3000`;
+  const origin = env.NODE_ENV === 'production' ? `https://${rpID}` : `http://${rpID}`;
+  const expectedOrigin = env.NODE_ENV === 'production' ? origin : `${origin}:3000`;
+
+  return {
+    rpID,
+    domain,
+    origin,
+    expectedOrigin,
+  };
+}
 
 async function webauthnVerification(
   session: Session,
@@ -67,6 +85,8 @@ async function webauthnVerification(
   if (!passKey) {
     throw new Error(`Could not find passKey ${authenticationResponse.id} for user ${user.id}`);
   }
+
+  const { rpID, expectedOrigin } = webauthnSettings();
 
   let verification;
   try {
@@ -147,6 +167,8 @@ async function webauthnAuthentication(
   if (!passKey) {
     return null;
   }
+
+  const { rpID, expectedOrigin } = webauthnSettings();
 
   const verification = await verifyAuthenticationResponse({
     response: authenticationResponse,

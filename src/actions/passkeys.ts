@@ -8,7 +8,7 @@ import {
 import { type RegistrationResponseJSON } from '@simplewebauthn/server/script/deps';
 import { revalidatePath } from 'next/cache';
 
-import { getServerSession, rpID, expectedOrigin, rpName } from '@/app/api/auth/options';
+import { getServerSession, webauthnSettings, rpName } from '@/app/api/auth/options';
 import { prisma } from '@/server/db';
 
 export async function hasPasskey() {
@@ -39,6 +39,8 @@ export async function create() {
       userId: session.user.id,
     },
   });
+
+  const { rpID } = webauthnSettings();
 
   const options = await generateRegistrationOptions({
     rpName,
@@ -104,6 +106,8 @@ export async function register(response: RegistrationResponseJSON) {
     throw new Error('Unauthorized');
   }
 
+  const { rpID, expectedOrigin } = webauthnSettings();
+
   const verification = await verifyRegistrationResponse({
     response,
     expectedChallenge,
@@ -165,6 +169,8 @@ export async function prepareVerify() {
     throw new Error('Unauthorized');
   }
 
+  const { rpID } = webauthnSettings();
+
   const options = await generateAuthenticationOptions({
     allowCredentials: existingPassKeys.map(existingPassKey => ({
       id: new Uint8Array(existingPassKey.credentialID),
@@ -188,6 +194,8 @@ export async function prepareVerify() {
 }
 
 export async function prepareAuth() {
+  const { rpID } = webauthnSettings();
+
   const options = await generateAuthenticationOptions({
     userVerification: 'required',
     rpID,
