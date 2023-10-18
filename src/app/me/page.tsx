@@ -1,13 +1,16 @@
 import { NextPage } from 'next';
 
-import { SessionInfo } from '@/components/session-info';
-
-import { getServerSession } from '../api/auth/options';
+import { getServerSession } from '@/app/api/auth/options';
+import { TwoFA } from '@/components/session/2fa';
+import { Info } from '@/components/session/info';
 
 const Page: NextPage = async () => {
-  const session = await getServerSession();
-
-  return <SessionInfo session={session!} />;
+  return (
+    <div className="flex w-[70vw] gap-10">
+      <Info />
+      <TwoFA />
+    </div>
+  );
 };
 
 export default Page;

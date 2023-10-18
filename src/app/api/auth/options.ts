@@ -1,19 +1,28 @@
 import 'server-only';
 
+import { verifyAuthenticationResponse } from '@simplewebauthn/server';
 import { type NextAuthOptions, getServerSession as getServerSessionInternal } from 'next-auth';
-import CredentialsProvider from 'next-auth/providers/credentials';
+import Credentials from 'next-auth/providers/credentials';
 import { getCsrfToken } from 'next-auth/react';
+import { authenticator } from 'otplib';
 import { SiweMessage } from 'siwe';
 
 import { env } from '@/env.mjs';
+import { toBase64 } from '@/lib/convert';
 import { prisma } from '@/server/db';
+
+export const rpName = 'SIWE + WEBAUTHN + NEXT-AUTH';
+export const rpID = env.NEXT_PUBLIC_VERCEL_URL || 'localhost';
+export const domain = env.NODE_ENV === 'production' ? rpID : `${rpID}:3000`;
+export const origin = env.NODE_ENV === 'production' ? `https://${rpID}` : `http://${rpID}`;
+export const expectedOrigin = env.NODE_ENV === 'production' ? origin : `${origin}:3000`;
 
 export const authOptions: NextAuthOptions = {
   session: {
     strategy: 'jwt',
   },
   providers: [
-    CredentialsProvider({
+    Credentials({
       id: 'siwe',
       name: 'SIWE',
       credentials: {
@@ -30,13 +39,14 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials, req) {
         try {
-          const siwe = new SiweMessage(JSON.parse(credentials?.message || '{}'));
+          if (!credentials) throw new Error('No credentials');
 
+          const siwe = new SiweMessage(JSON.parse(credentials.message));
           const nonce = await getCsrfToken({ req: { headers: req.headers } });
 
           const result = await siwe.verify({
-            signature: credentials?.signature || '',
-            domain: env.VERIFIED_DOMAIN,
+            signature: credentials.signature,
+            domain,
             nonce,
           });
 
@@ -52,10 +62,24 @@ export const authOptions: NextAuthOptions = {
               select: {
                 id: true,
                 role: true,
+                _count: {
+                  select: {
+                    totp: {
+                      where: {
+                        verified: true,
+                      },
+                    },
+                    passKeys: true,
+                  },
+                },
               },
             });
 
-            return user;
+            return {
+              id: user.id,
+              role: user.role,
+              is2FAEnabled: user._count.totp > 0 || user._count.passKeys > 0,
+            };
           } else {
             return null;
           }
@@ -65,14 +89,181 @@ export const authOptions: NextAuthOptions = {
         }
       },
     }),
+    Credentials({
+      id: 'webauthn',
+      name: 'WebAuthn',
+      credentials: {},
+      async authorize(_, request) {
+        const session = await getServerSession();
+
+        if (!session) {
+          return null;
+        }
+
+        const userId = session.user.id;
+
+        if (!userId) return null;
+
+        const user = await prisma.user.findUnique({
+          where: {
+            id: userId,
+          },
+          select: {
+            id: true,
+            role: true,
+            currentChallenge: true,
+            passKeys: {
+              select: {
+                credentialID: true,
+                credentialPublicKey: true,
+                counter: true,
+              },
+            },
+          },
+        });
+
+        if (!user || !user.currentChallenge || !user.passKeys.length) {
+          return null;
+        }
+
+        const expectedChallenge = user.currentChallenge;
+
+        const authenticationResponse = JSON.parse(request.body?.verification);
+
+        const passKey = user.passKeys.find(
+          passKey => toBase64(passKey.credentialID) === authenticationResponse.id
+        );
+
+        if (!passKey) {
+          throw new Error(
+            `Could not find passKey ${authenticationResponse.id} for user ${user.id}`
+          );
+        }
+
+        let verification;
+        try {
+          verification = await verifyAuthenticationResponse({
+            response: authenticationResponse,
+            expectedChallenge,
+            expectedOrigin,
+            expectedRPID: rpID,
+            authenticator: {
+              credentialID: new Uint8Array(passKey.credentialID),
+              credentialPublicKey: new Uint8Array(passKey.credentialPublicKey),
+              counter: passKey.counter,
+            },
+          });
+        } catch (error) {
+          console.error(error);
+          return null;
+        }
+
+        const { verified } = verification || {};
+
+        if (!verified) {
+          return null;
+        }
+
+        await prisma.user.update({
+          where: {
+            id: session.user.id,
+          },
+          data: {
+            currentChallenge: null,
+          },
+        });
+
+        return {
+          id: user.id,
+          role: user.role,
+          is2FAEnabled: true,
+          is2FAVerified: verified,
+        };
+      },
+    }),
+    Credentials({
+      id: 'totp',
+      name: 'totp',
+      credentials: {
+        id: {
+          label: 'ID',
+          type: 'text',
+          placeholder: '123456',
+        },
+        code: {
+          label: 'Code',
+          type: 'text',
+          placeholder: '123456',
+        },
+      },
+      async authorize(credentials) {
+        if (!credentials) throw new Error('No credentials');
+
+        const session = await getServerSession();
+
+        if (!session) {
+          return null;
+        }
+        const userId = session.user.id;
+
+        if (!userId) return null;
+
+        const user = await prisma.user.findUnique({
+          where: {
+            id: userId,
+          },
+          select: {
+            id: true,
+            role: true,
+            currentChallenge: true,
+            totp: {
+              select: {
+                id: true,
+                secret: true,
+              },
+              where: {
+                verified: true,
+              },
+            },
+          },
+        });
+
+        if (!user || !user.totp.length) {
+          return null;
+        }
+
+        const totp = user.totp.find(totp => totp.id === credentials.id);
+
+        if (!totp) {
+          throw new Error(`Could not find Verification Code ${credentials.id} for user ${user.id}`);
+        }
+
+        const valid = authenticator.check(credentials.code, totp.secret);
+
+        if (!valid) {
+          return null;
+        }
+
+        return {
+          id: user.id,
+          role: user.role,
+          is2FAEnabled: true,
+          is2FAVerified: valid,
+        };
+      },
+    }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    jwt: async ({ token, user }) => {
       if (user) {
-        // Persist the data to the token right after authentication
         token.id = user.id;
         token.role = user.role;
+        token.is2FAEnabled = user.is2FAEnabled;
+        token.is2FAVerified = user.is2FAVerified;
       }
+
+      // TODO: update user between sessions
+      // monitor for role changes, etc
 
       return token;
     },
@@ -81,6 +272,9 @@ export const authOptions: NextAuthOptions = {
       session.user.role = token.role;
       session.iat = token.iat;
       session.exp = token.exp;
+
+      session.user.is2FAEnabled = token.is2FAEnabled;
+      session.is2FAVerified = token.is2FAVerified as boolean;
       return session;
     },
   },

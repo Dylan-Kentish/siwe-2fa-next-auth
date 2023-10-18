@@ -1,3 +1,5 @@
+import { Suspense } from 'react';
+
 import Link from 'next/link';
 
 import { AccountButton } from './account-button';
@@ -18,7 +20,9 @@ export const Header: React.FC = () => {
         </Button>
       </div>
       <div className="flex justify-end">
-        <AccountButton />
+        <Suspense>
+          <AccountButton />
+        </Suspense>
       </div>
     </header>
   );

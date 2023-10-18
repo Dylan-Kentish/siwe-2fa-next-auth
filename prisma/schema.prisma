@@ -8,8 +8,43 @@ datasource db {
 }
 
 model User {
-  id   String @id @default(cuid())
+  id   String @id
   role Role   @default(USER)
+
+  currentChallenge String?
+
+  totp     TOTP[]
+  passKeys PassKey[]
+}
+
+model TOTP {
+  id        String   @id @default(cuid())
+  name      String
+  secret    String   @unique
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, id])
+}
+
+model PassKey {
+  id                   String  @id @default(cuid())
+  credentialID         Bytes   @unique
+  credentialPublicKey  Bytes
+  counter              Int
+  credentialDeviceType String
+  credentialBackedUp   Boolean
+  transports           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 enum Role {

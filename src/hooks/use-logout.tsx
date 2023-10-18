@@ -4,9 +4,11 @@ import { useDisconnect } from 'wagmi';
 export const useLogout = () => {
   const { disconnectAsync } = useDisconnect();
 
-  async function logoutAsync() {
+  async function logoutAsync(redirect?: boolean) {
     await disconnectAsync();
-    await signOut();
+    return await signOut({
+      redirect,
+    });
   }
 
   return { logoutAsync };
