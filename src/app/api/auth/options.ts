@@ -205,13 +205,14 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials, req) {
         try {
           if (!credentials) throw new Error('No credentials');
+          if (!req.headers) throw new Error('No headers');
 
           const siwe = new SiweMessage(JSON.parse(credentials.message));
           const nonce = await getCsrfToken({ req: { headers: req.headers } });
 
           const result = await siwe.verify({
             signature: credentials.signature,
-            domain,
+            domain: req.headers.host,
             nonce,
           });
 
