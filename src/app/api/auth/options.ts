@@ -90,21 +90,22 @@ async function webauthnVerification(
     return null;
   }
 
-  // await prisma.passKey.update({
-  //   where: {
-  //     id: passKey.
-  //   },
-  //   data: {
-  //     counter: verification.authenticationResponse...newCounter,
-  //   },
-  // });
-
   await prisma.user.update({
     where: {
       id: session.user.id,
     },
     data: {
       currentChallenge: null,
+      passKeys: {
+        update: {
+          where: {
+            id: passKey.id,
+          },
+          data: {
+            counter: verification.authenticationInfo.newCounter,
+          },
+        },
+      },
     },
   });
 
@@ -162,6 +163,16 @@ async function webauthnAuthentication(
   if (!verification.verified) {
     return null;
   }
+
+  await prisma.passKey.update({
+    where: {
+      userId: passKey.user.id,
+      credentialID: passKey.credentialID,
+    },
+    data: {
+      counter: verification.authenticationInfo.newCounter,
+    },
+  });
 
   return {
     id: passKey.user.id,
