@@ -1,6 +1,5 @@
 import { NextPage } from 'next';
 
-import { getServerSession } from '@/app/api/auth/options';
 import { TwoFA } from '@/components/session/2fa';
 import { Info } from '@/components/session/info';
 
