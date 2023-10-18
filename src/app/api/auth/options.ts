@@ -1,14 +1,20 @@
 import 'server-only';
 
 import { verifyAuthenticationResponse } from '@simplewebauthn/server';
-import { type NextAuthOptions, getServerSession as getServerSessionInternal } from 'next-auth';
+import { AuthenticationResponseJSON } from '@simplewebauthn/server/script/deps';
+import {
+  type NextAuthOptions,
+  getServerSession as getServerSessionInternal,
+  Session,
+  RequestInternal,
+} from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import { getCsrfToken } from 'next-auth/react';
 import { authenticator } from 'otplib';
 import { SiweMessage } from 'siwe';
 
 import { env } from '@/env.mjs';
-import { toBase64 } from '@/lib/convert';
+import { fromBase64, toBase64 } from '@/lib/convert';
 import { prisma } from '@/server/db';
 
 export const rpName = 'SIWE + WEBAUTHN + NEXT-AUTH';
@@ -16,6 +22,154 @@ export const rpID = env.NEXT_PUBLIC_VERCEL_URL || 'localhost';
 export const domain = env.NODE_ENV === 'production' ? rpID : `${rpID}:3000`;
 export const origin = env.NODE_ENV === 'production' ? `https://${rpID}` : `http://${rpID}`;
 export const expectedOrigin = env.NODE_ENV === 'production' ? origin : `${origin}:3000`;
+
+async function webauthnVerification(
+  session: Session,
+  request: Pick<RequestInternal, 'body' | 'query' | 'headers' | 'method'>
+) {
+  const userId = session.user.id;
+
+  if (!userId) return null;
+
+  const user = await prisma.user.findUnique({
+    where: {
+      id: userId,
+    },
+    select: {
+      id: true,
+      role: true,
+      currentChallenge: true,
+      passKeys: {
+        select: {
+          id: true,
+          credentialID: true,
+          credentialPublicKey: true,
+          counter: true,
+        },
+      },
+    },
+  });
+
+  if (!user || !user.currentChallenge || !user.passKeys.length) {
+    return null;
+  }
+
+  const expectedChallenge = user.currentChallenge;
+
+  const authenticationResponse = JSON.parse(
+    request.body?.verification
+  ) as AuthenticationResponseJSON;
+
+  const passKey = user.passKeys.find(
+    passKey => toBase64(passKey.credentialID) === authenticationResponse.id
+  );
+
+  if (!passKey) {
+    throw new Error(`Could not find passKey ${authenticationResponse.id} for user ${user.id}`);
+  }
+
+  let verification;
+  try {
+    verification = await verifyAuthenticationResponse({
+      response: authenticationResponse,
+      expectedChallenge,
+      expectedOrigin,
+      expectedRPID: rpID,
+      authenticator: {
+        credentialID: new Uint8Array(passKey.credentialID),
+        credentialPublicKey: new Uint8Array(passKey.credentialPublicKey),
+        counter: passKey.counter,
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+
+  if (!verification.verified) {
+    return null;
+  }
+
+  // await prisma.passKey.update({
+  //   where: {
+  //     id: passKey.
+  //   },
+  //   data: {
+  //     counter: verification.authenticationResponse...newCounter,
+  //   },
+  // });
+
+  await prisma.user.update({
+    where: {
+      id: session.user.id,
+    },
+    data: {
+      currentChallenge: null,
+    },
+  });
+
+  return {
+    id: user.id,
+    role: user.role,
+    is2FAEnabled: true,
+    is2FAVerified: verification.verified,
+  };
+}
+
+async function webauthnAuthentication(
+  request: Pick<RequestInternal, 'body' | 'query' | 'headers' | 'method'>
+) {
+  const authenticationResponse = JSON.parse(
+    request.body?.verification
+  ) as AuthenticationResponseJSON;
+
+  const challenge = request.body?.challenge;
+
+  const passKey = await prisma.passKey.findUnique({
+    where: {
+      userId: authenticationResponse.response.userHandle,
+      credentialID: fromBase64(authenticationResponse.id) as Buffer,
+    },
+    select: {
+      credentialID: true,
+      credentialPublicKey: true,
+      counter: true,
+      user: {
+        select: {
+          id: true,
+          role: true,
+        },
+      },
+    },
+  });
+
+  if (!passKey) {
+    return null;
+  }
+
+  const verification = await verifyAuthenticationResponse({
+    response: authenticationResponse,
+    expectedChallenge: challenge,
+    expectedOrigin,
+    expectedRPID: rpID,
+    authenticator: {
+      credentialID: new Uint8Array(passKey.credentialID),
+      credentialPublicKey: new Uint8Array(passKey.credentialPublicKey),
+      counter: passKey.counter,
+    },
+  });
+
+  if (!verification.verified) {
+    return null;
+  }
+
+  return {
+    id: passKey.user.id,
+    role: passKey.user.role,
+    is2FAEnabled: true,
+    is2FAVerified: true,
+  };
+}
 
 export const authOptions: NextAuthOptions = {
   session: {
@@ -96,89 +250,11 @@ export const authOptions: NextAuthOptions = {
       async authorize(_, request) {
         const session = await getServerSession();
 
-        if (!session) {
-          return null;
+        if (session) {
+          return webauthnVerification(session, request);
+        } else {
+          return webauthnAuthentication(request);
         }
-
-        const userId = session.user.id;
-
-        if (!userId) return null;
-
-        const user = await prisma.user.findUnique({
-          where: {
-            id: userId,
-          },
-          select: {
-            id: true,
-            role: true,
-            currentChallenge: true,
-            passKeys: {
-              select: {
-                credentialID: true,
-                credentialPublicKey: true,
-                counter: true,
-              },
-            },
-          },
-        });
-
-        if (!user || !user.currentChallenge || !user.passKeys.length) {
-          return null;
-        }
-
-        const expectedChallenge = user.currentChallenge;
-
-        const authenticationResponse = JSON.parse(request.body?.verification);
-
-        const passKey = user.passKeys.find(
-          passKey => toBase64(passKey.credentialID) === authenticationResponse.id
-        );
-
-        if (!passKey) {
-          throw new Error(
-            `Could not find passKey ${authenticationResponse.id} for user ${user.id}`
-          );
-        }
-
-        let verification;
-        try {
-          verification = await verifyAuthenticationResponse({
-            response: authenticationResponse,
-            expectedChallenge,
-            expectedOrigin,
-            expectedRPID: rpID,
-            authenticator: {
-              credentialID: new Uint8Array(passKey.credentialID),
-              credentialPublicKey: new Uint8Array(passKey.credentialPublicKey),
-              counter: passKey.counter,
-            },
-          });
-        } catch (error) {
-          console.error(error);
-          return null;
-        }
-
-        const { verified } = verification || {};
-
-        if (!verified) {
-          return null;
-        }
-
-        await prisma.user.update({
-          where: {
-            id: session.user.id,
-          },
-          data: {
-            currentChallenge: null,
-          },
-        });
-
-        return {
-          id: user.id,
-          role: user.role,
-          is2FAEnabled: true,
-          is2FAVerified: verified,
-        };
       },
     }),
     Credentials({

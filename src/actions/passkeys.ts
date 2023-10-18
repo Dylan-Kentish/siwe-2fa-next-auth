@@ -187,6 +187,15 @@ export async function prepareVerify() {
   return options;
 }
 
+export async function prepareAuth() {
+  const options = await generateAuthenticationOptions({
+    userVerification: 'required',
+    rpID,
+  });
+
+  return options;
+}
+
 export async function rename(id: string, name: string) {
   const session = await getServerSession();
 

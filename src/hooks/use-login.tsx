@@ -1,12 +1,15 @@
+import { startAuthentication } from '@simplewebauthn/browser';
 import { getCsrfToken, signIn } from 'next-auth/react';
 import { SiweMessage } from 'siwe';
 import { useChainId, useSignMessage } from 'wagmi';
+
+import { prepareAuth } from '@/actions/passkeys';
 
 export const useLogin = () => {
   const chainId = useChainId();
   const { signMessageAsync } = useSignMessage();
 
-  async function loginAsync(address: string) {
+  async function siweAsync(address: string) {
     const message = new SiweMessage({
       domain: window.location.host,
       address: address,
@@ -39,5 +42,23 @@ export const useLogin = () => {
     return result?.ok ?? false;
   }
 
-  return { loginAsync };
+  async function siwpkAsync() {
+    const data = await prepareAuth();
+    const authResp = await startAuthentication({ ...data });
+
+    const result = await signIn('webauthn', {
+      verification: JSON.stringify(authResp),
+      // TODO: is this a hack, used to maintain the auth challenge?
+      challenge: data.challenge,
+      redirect: false,
+    });
+
+    if (!result?.ok) {
+      console.error('Failed to sign in with passkey.');
+    }
+
+    return result?.ok ?? false;
+  }
+
+  return { siweAsync, siwpkAsync };
 };

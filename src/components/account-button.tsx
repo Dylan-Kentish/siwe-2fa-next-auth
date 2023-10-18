@@ -12,17 +12,26 @@ import { useLogout } from '@/hooks/use-logout';
 
 import { use2FA } from './providers/2fa';
 import { Button } from './ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from './ui/dialog';
 
 export const AccountButton: React.FC = () => {
   const path = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
 
+  const [selectMethodOpen, setSelectMethodOpen] = useState(false);
   const { data: session, status: sessionStatus } = useSession();
   const { open } = useWeb3Modal();
   const { open: isOpen } = useWeb3ModalState();
   const { disconnectAsync } = useDisconnect();
-  const { loginAsync } = useLogin();
+  const { siweAsync, siwpkAsync } = useLogin();
   const { logoutAsync } = useLogout();
 
   const redirect = useCallback(() => {
@@ -51,7 +60,7 @@ export const AccountButton: React.FC = () => {
 
       setDisabled(true);
 
-      const ok = await loginAsync(address);
+      const ok = await siweAsync(address);
 
       if (!ok) {
         await disconnectAsync();
@@ -61,11 +70,31 @@ export const AccountButton: React.FC = () => {
     },
   });
 
-  async function handleClick() {
+  function handleLogout() {
+    logoutAsync().catch(console.error);
+  }
+
+  function handleWalletConnect() {
+    open().catch(console.error);
+  }
+
+  async function handlePassKey() {
+    await siwpkAsync().then(() => {
+      setSelectMethodOpen(false);
+    });
+  }
+
+  function handleClick() {
     if (session) {
-      await logoutAsync().catch(console.error);
+      handleLogout();
     } else {
-      open().catch(console.error);
+      setSelectMethodOpen(true);
+    }
+  }
+
+  function handleOpenChange(open: boolean) {
+    if (!open) {
+      setSelectMethodOpen(false);
     }
   }
 
@@ -81,12 +110,28 @@ export const AccountButton: React.FC = () => {
   }, [session]);
 
   return (
-    <Button
-      size="lg"
-      onClick={handleClick}
-      disabled={sessionStatus === 'loading' || isOpen || disabled}
-    >
-      {session ? 'Logout' : 'Login'}
-    </Button>
+    <Dialog open={selectMethodOpen} onOpenChange={handleOpenChange} modal={true}>
+      <DialogTrigger asChild>
+        <Button
+          size="lg"
+          onClick={handleClick}
+          disabled={sessionStatus === 'loading' || isOpen || disabled}
+        >
+          {session ? 'Logout' : 'Login'}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="flex flex-col gap-2 sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Login methods</DialogTitle>
+          <DialogDescription>Select a login method to continue.</DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-4">
+          <Button onClick={handleWalletConnect}>WalletConnect</Button>
+
+          <Button onClick={handlePassKey}>PassKey</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 };
