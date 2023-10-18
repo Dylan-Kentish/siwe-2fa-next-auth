@@ -99,12 +99,15 @@ export const AccountButton: React.FC = () => {
   }
 
   useEffect(() => {
-    if (session) {
-      if (session.user.is2FAEnabled && !session.is2FAVerified) {
-        verify2FA().catch(console.error);
-      } else {
-        redirect();
-      }
+    if (sessionStatus === 'authenticated' && session && !session.user.is2FAEnabled) {
+      redirect();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionStatus]);
+
+  useEffect(() => {
+    if (session && session.user.is2FAEnabled && !session.is2FAVerified) {
+      verify2FA().catch(console.error);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
