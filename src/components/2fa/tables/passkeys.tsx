@@ -21,24 +21,24 @@ export const PassKeysTable: React.FC = async () => {
       <TableHeader>
         <TableRow>
           <TableHead>Name</TableHead>
-          <TableHead>Device</TableHead>
-          <TableHead>Updated</TableHead>
-          <TableHead />
+          <TableHead className="text-center">Device</TableHead>
+          <TableHead className="text-center">Updated</TableHead>
+          <TableHead className="w-0 px-0" />
         </TableRow>
       </TableHeader>
       <TableBody>
         {passkeys.map(passkey => (
           <TableRow key={passkey.id}>
-            <TableCell>TODO: add name</TableCell>
-            <TableCell>{passkey.credentialDeviceType}</TableCell>
-            <TableCell>
+            <TableCell>{passkey.name}</TableCell>
+            <TableCell className="text-center">{passkey.credentialDeviceType}</TableCell>
+            <TableCell className="text-center">
               {passkey.updatedAt.toLocaleString(undefined, {
                 day: '2-digit',
                 month: 'short',
                 year: '2-digit',
               })}
             </TableCell>
-            <TableCell>
+            <TableCell className="text-end">
               <Remove id={passkey.id} />
             </TableCell>
           </TableRow>

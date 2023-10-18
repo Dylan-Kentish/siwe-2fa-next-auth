@@ -25,7 +25,7 @@ export const VerificationCodesTable: React.FC = async () => {
           <TableHead>Name</TableHead>
           <TableHead className="text-center">Verified</TableHead>
           <TableHead className="text-center">Updated</TableHead>
-          <TableHead />
+          <TableHead className="w-0 px-0" />
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -42,7 +42,7 @@ export const VerificationCodesTable: React.FC = async () => {
                 year: '2-digit',
               })}
             </TableCell>
-            <TableCell>
+            <TableCell className="text-end">
               <Remove id={verificationCode.id} />
             </TableCell>
           </TableRow>

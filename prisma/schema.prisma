@@ -18,10 +18,12 @@ model User {
 }
 
 model TOTP {
-  id        String   @id @default(cuid())
-  name      String
-  secret    String   @unique
-  verified  Boolean  @default(false)
+  id   String @id @default(cuid())
+  name String
+
+  secret   String  @unique
+  verified Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -32,7 +34,9 @@ model TOTP {
 }
 
 model PassKey {
-  id                   String  @id @default(cuid())
+  id   String @id @default(cuid())
+  name String
+
   credentialID         Bytes   @unique
   credentialPublicKey  Bytes
   counter              Int
@@ -45,6 +49,8 @@ model PassKey {
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, id])
 }
 
 enum Role {

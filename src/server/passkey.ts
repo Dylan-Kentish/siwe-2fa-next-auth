@@ -15,6 +15,7 @@ export async function getPasskeys() {
     },
     select: {
       id: true,
+      name: true,
       credentialDeviceType: true,
       updatedAt: true,
     },

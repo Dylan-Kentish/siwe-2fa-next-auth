@@ -6,6 +6,7 @@ import {
   verifyRegistrationResponse,
 } from '@simplewebauthn/server';
 import { type RegistrationResponseJSON } from '@simplewebauthn/server/script/deps';
+import { revalidatePath } from 'next/cache';
 
 import { getServerSession, rpID, expectedOrigin, rpName } from '@/app/api/auth/options';
 import { prisma } from '@/server/db';
@@ -123,23 +124,25 @@ export async function register(response: RegistrationResponseJSON) {
     throw new Error('Unauthorized');
   }
 
-  await prisma.user.update({
-    where: {
-      id: session.user.id,
-    },
+  const passKey = await prisma.passKey.create({
     data: {
-      passKeys: {
-        create: {
-          // base64 encode
-          credentialID: Buffer.from(credentialID),
-          credentialPublicKey: Buffer.from(credentialPublicKey),
-          counter: counter ?? 0,
-          credentialBackedUp: credentialBackedUp ?? false,
-          credentialDeviceType: credentialDeviceType ?? 'singleDevice',
+      name: 'Default',
+      credentialID: Buffer.from(credentialID),
+      credentialPublicKey: Buffer.from(credentialPublicKey),
+      counter: counter ?? 0,
+      credentialBackedUp: credentialBackedUp ?? false,
+      credentialDeviceType: credentialDeviceType ?? 'singleDevice',
+      user: {
+        connect: {
+          id: userId,
         },
       },
     },
   });
+
+  revalidatePath('/me');
+
+  return passKey.id;
 }
 
 export async function prepareVerify() {
@@ -184,6 +187,28 @@ export async function prepareVerify() {
   return options;
 }
 
+export async function rename(id: string, name: string) {
+  const session = await getServerSession();
+
+  if (!session) {
+    throw new Error('Unauthorized');
+  }
+
+  await prisma.passKey.update({
+    where: {
+      id,
+      userId: session.user.id,
+    },
+    data: {
+      name,
+    },
+  });
+
+  revalidatePath('/me');
+
+  return true;
+}
+
 export async function remove(id: string) {
   const session = await getServerSession();
 
@@ -197,6 +222,8 @@ export async function remove(id: string) {
       userId: session.user.id,
     },
   });
+
+  revalidatePath('/me');
 
   return true;
 }

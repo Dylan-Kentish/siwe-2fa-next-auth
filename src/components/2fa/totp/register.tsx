@@ -219,6 +219,7 @@ export const Register: React.FC = () => {
   function handleOpenChange(open: boolean) {
     if (open) {
       setStage('scan');
+      setId(undefined);
     }
     setOpen(open);
   }
