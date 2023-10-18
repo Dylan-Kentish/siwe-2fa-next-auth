@@ -1,10 +1,12 @@
-import { NextPage } from 'next';
+'use client';
 
-import { getServerSession } from '@/app/api/auth/options';
+import { NextPage } from 'next';
+import { useSession } from 'next-auth/react';
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
-const SIWEPage: NextPage = async () => {
-  const session = await getServerSession();
+const SIWEPage: NextPage = () => {
+  const { data: session } = useSession();
 
   return (
     <Card>
