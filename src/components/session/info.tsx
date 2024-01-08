@@ -37,6 +37,7 @@ export const Info: React.FC = async () => {
         <p>
           Role: <strong>{session.user.role}</strong>
         </p>
+        <p>Chain: {session.user.chainId}</p>
         <p>
           2FA Enabled: <strong>{session.user.is2FAEnabled ? 'TRUE' : 'FALSE'}</strong>
         </p>
