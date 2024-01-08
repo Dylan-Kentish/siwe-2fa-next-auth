@@ -5,6 +5,7 @@ import NextAuth from 'next-auth';
 declare module 'next-auth' {
   interface User {
     id: string;
+    chainId: number;
     role: Role;
     is2FAEnabled: boolean;
     is2FAVerified?: boolean;
@@ -21,6 +22,7 @@ declare module 'next-auth' {
 declare module 'next-auth/jwt' {
   interface JWT {
     id: string;
+    chainId: number;
     role: Role;
     is2FAEnabled: boolean;
     is2FAVerified?: boolean;

@@ -5,7 +5,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useWeb3Modal, useWeb3ModalState } from '@web3modal/wagmi/react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { useAccount, useDisconnect } from 'wagmi';
 
 import { useLogin } from '@/hooks/use-login';
 import { useLogout } from '@/hooks/use-logout';
@@ -30,8 +29,7 @@ export const AccountButton: React.FC = () => {
   const { data: session, status: sessionStatus } = useSession();
   const { open } = useWeb3Modal();
   const { open: isOpen } = useWeb3ModalState();
-  const { disconnectAsync } = useDisconnect();
-  const { siweAsync, siwpkAsync } = useLogin();
+  const { siwpkAsync } = useLogin();
   const { logoutAsync } = useLogout();
 
   const redirect = useCallback(() => {
@@ -51,24 +49,6 @@ export const AccountButton: React.FC = () => {
   });
 
   const [disabled, setDisabled] = useState(false);
-
-  useAccount({
-    onConnect: async ({ address }) => {
-      if (!address || sessionStatus === 'loading') {
-        return;
-      }
-
-      setDisabled(true);
-
-      const ok = await siweAsync(address);
-
-      if (!ok) {
-        await disconnectAsync();
-      }
-
-      setDisabled(false);
-    },
-  });
 
   function handleLogout() {
     logoutAsync().catch(console.error);

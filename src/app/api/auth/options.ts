@@ -2,6 +2,7 @@ import 'server-only';
 
 import { verifyAuthenticationResponse } from '@simplewebauthn/server';
 import { AuthenticationResponseJSON } from '@simplewebauthn/server/script/deps';
+import { ethers } from 'ethers';
 import { headers } from 'next/headers';
 import {
   type NextAuthOptions,
@@ -17,6 +18,8 @@ import { SiweMessage } from 'siwe';
 import { env } from '@/env.mjs';
 import { fromBase64, toBase64 } from '@/lib/convert';
 import { prisma } from '@/server/db';
+
+const projectId = env.NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID;
 
 export const rpName = 'SIWE + WEBAUTHN + NEXT-AUTH';
 
@@ -55,6 +58,7 @@ async function webauthnVerification(
     },
     select: {
       id: true,
+      chainId: true,
       role: true,
       currentChallenge: true,
       passKeys: {
@@ -132,6 +136,7 @@ async function webauthnVerification(
   return {
     id: user.id,
     role: user.role,
+    chainId: user.chainId,
     is2FAEnabled: true,
     is2FAVerified: verification.verified,
   };
@@ -158,6 +163,7 @@ async function webauthnAuthentication(
       user: {
         select: {
           id: true,
+          chainId: true,
           role: true,
         },
       },
@@ -199,6 +205,7 @@ async function webauthnAuthentication(
   return {
     id: passKey.user.id,
     role: passKey.user.role,
+    chainId: passKey.user.chainId,
     is2FAEnabled: true,
     is2FAVerified: true,
   };
@@ -229,14 +236,22 @@ export const authOptions: NextAuthOptions = {
           if (!credentials) throw new Error('No credentials');
           if (!req.headers) throw new Error('No headers');
 
-          const siwe = new SiweMessage(JSON.parse(credentials.message));
+          const siwe = new SiweMessage(credentials.message);
+          const provider = new ethers.JsonRpcProvider(
+            `https://rpc.walletconnect.com/v1?chainId=eip155:${siwe.chainId}&projectId=${projectId}`
+          );
           const nonce = await getCsrfToken({ req: { headers: req.headers } });
 
-          const result = await siwe.verify({
-            signature: credentials.signature,
-            domain: req.headers.host,
-            nonce,
-          });
+          const result = await siwe.verify(
+            {
+              signature: credentials.signature,
+              domain: req.headers.host,
+              nonce,
+            },
+            {
+              provider,
+            }
+          );
 
           if (result.success) {
             const user = await prisma.user.upsert({
@@ -246,6 +261,7 @@ export const authOptions: NextAuthOptions = {
               update: {},
               create: {
                 id: siwe.address,
+                chainId: siwe.chainId,
               },
               select: {
                 id: true,
@@ -266,6 +282,7 @@ export const authOptions: NextAuthOptions = {
             return {
               id: user.id,
               role: user.role,
+              chainId: siwe.chainId,
               is2FAEnabled: user._count.totp > 0 || user._count.passKeys > 0,
             };
           } else {
@@ -325,6 +342,7 @@ export const authOptions: NextAuthOptions = {
           select: {
             id: true,
             role: true,
+            chainId: true,
             currentChallenge: true,
             totp: {
               select: {
@@ -357,6 +375,7 @@ export const authOptions: NextAuthOptions = {
         return {
           id: user.id,
           role: user.role,
+          chainId: user.chainId,
           is2FAEnabled: true,
           is2FAVerified: valid,
         };
@@ -368,18 +387,30 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id;
         token.role = user.role;
+        token.chainId = user.chainId;
         token.is2FAEnabled = user.is2FAEnabled;
         token.is2FAVerified = user.is2FAVerified;
-      }
+      } else {
+        const dbUser = await prisma.user.findUniqueOrThrow({
+          where: {
+            id: token.id,
+          },
+          select: {
+            chainId: true,
+            role: true,
+          },
+        });
 
-      // TODO: update user between sessions
-      // monitor for role changes, etc
+        token.chainId = dbUser.chainId;
+        token.role = dbUser.role;
+      }
 
       return token;
     },
     session({ session, token }) {
       session.user.id = token.id;
       session.user.role = token.role;
+      session.user.chainId = token.chainId;
       session.iat = token.iat;
       session.exp = token.exp;
 
